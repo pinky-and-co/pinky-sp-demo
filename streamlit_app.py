@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-APP_VERSION = "v1"
+APP_VERSION = "v2"
 
 st.title("pinky-provider live check")
 st.write(f"App version: {APP_VERSION}")
