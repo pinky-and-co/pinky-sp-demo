@@ -1,0 +1,228 @@
+#!/bin/bash
+# =============================================================================
+# COMMIT-MSG HOOK
+# =============================================================================
+# Format: <emoji> <type>[!]: <description>
+#   ticket (optional)   : Closes: #42 | Refs: #42
+#   breaking (optional) : `!` after type, and/or a `BREAKING CHANGE: <description>`
+#                         footer as the last block of the message
+#
+# Special case: 💾 save: <description> [skip ci]
+#
+# Distributed by `pinky repo distribute` from hygiene/hooks/ — do not edit in place;
+# edit the source there.
+# =============================================================================
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(head -1 "$COMMIT_MSG_FILE" | tr -d '\r')
+
+# Longueur en points de code UTF-8, indépendante de la locale : `${#}` compte des octets sous une
+# locale C, et le bash de Git ne compte pas un emoji hors BMP pour un caractère, même sous locale
+# UTF-8 (le CI Windows de ce dépôt a rendu deux carets sous 🙂). Un point de code = un octet de
+# début, hors continuation 0x80-0xBF.
+_len() {
+    echo "$(( $(printf '%s' "$1" | LC_ALL=C tr -d '\200-\277' | LC_ALL=C wc -c) ))"
+}
+
+# Même rendu que `_report.py` (ruff-style), en bash pur : ce hook n'a pas le droit de dépendre de
+# python. Couleur : `NO_COLOR` coupe, `FORCE_COLOR` / `CLICOLOR_FORCE` forcent, sinon terminal seul.
+if [ -z "$NO_COLOR" ] \
+    && { [ -n "$FORCE_COLOR" ] || [ -n "$CLICOLOR_FORCE" ] \
+        || { [ -t 1 ] && [ "$TERM" != "dumb" ]; }; }; then
+    RED=$'\e[1;31m' BLUE=$'\e[1;34m' CYAN=$'\e[1;36m' BOLD=$'\e[1m' DIM=$'\e[2m' RESET=$'\e[0m'
+else
+    RED="" BLUE="" CYAN="" BOLD="" DIM="" RESET=""
+fi
+
+# fail <line> <col> <width> <message> [help-line...] — un finding, son résumé, puis exit 1.
+fail() {
+    local line=$1 col=$2 width=$3 message=$4
+    shift 4
+    local pad src underline lead dir=""
+    case "$COMMIT_MSG_FILE" in */*) dir="${COMMIT_MSG_FILE%/*}/" ;; esac
+    pad=${line//?/ }
+    src=$(sed -n "${line}p" "$COMMIT_MSG_FILE" | tr -d '\r')
+    underline="$(printf '%*s' "$((col - 1))" '')$(printf '%*s' "$width" '' | tr ' ' '^')"
+    echo "${DIM}${dir}${RESET}${BOLD}${COMMIT_MSG_FILE##*/}${RESET} ${DIM}(1)${RESET}"
+    echo ""
+    echo "  ${RED}COMMIT-MSG${RESET} ${BOLD}${message}${RESET}"
+    echo "  ${pad}${BLUE}-->${RESET} ${COMMIT_MSG_FILE}:${line}:${col}"
+    echo "  ${pad} ${BLUE}|${RESET}"
+    echo "  ${BLUE}${line}${RESET} ${BLUE}|${RESET} ${src}"
+    echo "  ${pad} ${BLUE}|${RESET} ${RED}${underline}${RESET}"
+    if [ $# -gt 0 ]; then
+        echo "  ${pad} ${BLUE}|${RESET}"
+        lead="  ${pad} ${BLUE}=${RESET} ${CYAN}help:${RESET} "
+        for help_line in "$@"; do
+            echo "${lead}${help_line}"
+            lead="  ${pad}         "
+        done
+    fi
+    echo ""
+    echo "${RED}Found 1 error in 1 file.${RESET}"
+    exit 1
+}
+
+if echo "$COMMIT_MSG" | grep -qE "^Merge "; then
+    exit 0
+fi
+
+if echo "$COMMIT_MSG" | grep -qE "^💾 save: .{3,} \[skip ci\]"; then
+    exit 0
+fi
+
+# Zéro interpréteur : `read` découpe nativement les deux premiers tokens et bash porte l'ERE avec
+# `[[ =~ ]]` — `tr`/`wc` (dans `_len`) restent les seuls sous-processus. `python3` n'est pas garanti
+# sur une machine Windows vanilla, où ce hook doit pourtant pouvoir bloquer un commit.
+#
+# Le découpage sur l'espace est sûr en UTF-8 : l'espace est ASCII et UTF-8 est auto-synchronisant,
+# donc un emoji multi-octets n'est jamais coupé en deux.
+read -r EMOJI REST <<< "$COMMIT_MSG"
+
+TYPE=""
+[[ "$REST" =~ ^([a-z_-]+) ]] && TYPE="${BASH_REMATCH[1]}"
+
+if [ -z "$EMOJI" ] || [ -z "$TYPE" ]; then
+    fail 1 1 "$(_len "$COMMIT_MSG")" "invalid format — missing emoji or type" \
+        "format: <emoji> <type>[!]: <description>"
+fi
+
+# Table unique emoji → type : sert à valider le couple et à lister les emojis d'un type.
+EMOJI_TABLE="🎉 feat
+✨ feat
+📈 feat
+🌐 feat
+🚩 feat
+🛂 feat
+👔 feat
+♿️ feat
+🦺 feat
+🚸 feat
+📱 feat
+🥚 feat
+🔍️ feat
+🧵 feat
+🌍 feat
+🐛 fix
+🥅 fix
+🩹 fix
+🚑️ fix
+🔒️ fix
+👽️ fix
+🚨 fix
+🍎 fix
+🐧 fix
+🏁 fix
+🤖 fix
+🍏 fix
+📝 docs
+💡 docs
+💬 docs
+📄 docs
+👥 docs
+🎨 style
+✏️ style
+💄 style
+💫 style
+♻️ refactor
+🔥 refactor
+🗑️ refactor
+⚰️ refactor
+🗃️ refactor
+🏗️ refactor
+💩 refactor
+🍻 refactor
+🚚 move
+⚡️ perf
+✅ test
+🧪 test
+🤡 test
+📸 test
+🩺 test
+⏪️ revert
+📦️ build
+⬆️ build
+⬇️ build
+➕ build
+➖ build
+📌 build
+🔧 chore
+🔨 chore
+👷 chore
+💚 chore
+🔊 chore
+🔇 chore
+🔐 chore
+🚧 chore
+🔀 chore
+🍱 chore
+🏷️ chore
+🌱 chore
+🧱 chore
+🙈 chore
+⚗️ chore
+💸 chore
+🚀 release
+🔖 release"
+
+allowed_type=""
+type_emojis=""
+while read -r row_emoji row_type; do
+    [ "$row_emoji" = "$EMOJI" ] && allowed_type="$row_type"
+    [ "$row_type" = "$TYPE" ] && type_emojis="$type_emojis $row_emoji"
+done <<< "$EMOJI_TABLE"
+
+if [ -z "$allowed_type" ]; then
+    if [ -n "$type_emojis" ]; then
+        fail 1 1 "$(_len "$EMOJI")" "emoji '$EMOJI' not in mapping" "emojis for '$TYPE':$type_emojis"
+    fi
+    fail 1 1 "$(_len "$EMOJI")" "emoji '$EMOJI' not in mapping" \
+        "types: feat fix docs style refactor move perf test revert build chore release"
+fi
+
+if [ "$TYPE" != "$allowed_type" ]; then
+    fail 1 "$(( $(_len "$EMOJI") + 2 ))" "${#TYPE}" \
+        "emoji '$EMOJI' requires type '$allowed_type', got '$TYPE'" \
+        "use: $EMOJI $allowed_type: <description>"
+fi
+
+TYPES="feat|fix|docs|style|refactor|move|perf|test|revert|build|chore|release"
+# La forme d'abord, la longueur ensuite : le `.{3,}` d'un grep compte des octets sous une locale C,
+# des caractères sous UTF-8 — le gate varierait avec la plateforme. L'unité de la règle est le
+# point de code, compté par `_len` sur la description extraite après « <type>[!]: ».
+PATTERN="^.+ (${TYPES})!?: ."
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN" \
+    || [ "$(_len "${REST#*: }")" -lt 3 ]; then
+    fail 1 1 "$(_len "$COMMIT_MSG")" "invalid commit format" \
+        "format: <emoji> <type>[!]: <description>" \
+        "examples:" \
+        "  ✨ feat: add manifest variable resolution" \
+        "  🐛 fix: handle missing warehouse field" \
+        "  🔧 chore: add release workflow" \
+        "  📝 docs: add plan command usage" \
+        "  ♻️ refactor!: rename upload_packages signature" \
+        "  💾 save: core/manifest.py in progress [skip ci]"
+fi
+
+# Breaking-change footer — one house form only: `BREAKING CHANGE:` (a space,
+# both words uppercase), and it can land anywhere in the file so this checks the
+# whole message, not just the header. The gate is case- and separator-loose so
+# every near-miss is caught rather than passing silently: `BREAKING-CHANGE:`
+# (spec §16's hyphen synonym, deliberately not accepted here), a miscased
+# `Breaking change:`, and innocent start-of-line prose like "Breaking change:
+# none" all trip it and are then rejected by the strict check. Keep such phrases
+# off the start of a line when you don't mean the footer.
+if grep -qiE "^BREAKING[- ]CHANGE:" "$COMMIT_MSG_FILE"; then
+    if ! grep -qE "^BREAKING CHANGE: .{3,}" "$COMMIT_MSG_FILE"; then
+        footer_line=$(grep -niE -m1 "^BREAKING[- ]CHANGE:" "$COMMIT_MSG_FILE")
+        footer_no=${footer_line%%:*}
+        footer_text=${footer_line#*:}
+        footer_key=${footer_text%%:*}
+        fail "$footer_no" 1 "$((${#footer_key} + 1))" "malformed BREAKING CHANGE footer" \
+            "must be exactly: BREAKING CHANGE: <description>  (one space, both words uppercase)" \
+            "BREAKING-CHANGE: and other casings are rejected on purpose — use the space form"
+    fi
+fi
+
+exit 0

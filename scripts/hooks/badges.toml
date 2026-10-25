@@ -1,0 +1,85 @@
+# core/hooks/badges.toml — generic badge catalog (no instance identity here — see docs_identity.json).
+# Sibling to render_docs.py by design: _load_badges() resolves it via Path(__file__).with_name(...),
+# so this file's canonical source must live wherever render_docs.py itself lives.
+#
+# TOML, not YAML: render_docs.py (the commit-time hook) is stdlib-only by design — the default
+# `setup.py --all` path stays dependency-free (no pyyaml). tomllib is stdlib (3.11+) and this module
+# already parses pyproject.toml with it, so no new dependency either way.
+#
+# Each [[badge]] is one badge. Fields:
+#   id        — stable identifier (not rendered)
+#   surfaces  — where it can appear: "readme" and/or "index"
+#   condition — repo-relative path that must exist for the badge to render (presence-gated, not
+#               profile/extras-gated — a non-Python repo still gets license/prek without a dangling
+#               PyPI/coverage badge pointing at nothing)
+#   readme / index — the markdown line for that surface (only needed for surfaces it's listed in).
+#               Placeholders: {name} (repo name from the origin remote — see repo_name() in
+#               render_docs.py), {license} (shields-escaped LICENSE), {github_org}
+#               (from docs_identity.json).
+#
+# Order in this file = render order (list order is preserved by tomllib) — do not reorder without
+# checking the already-templated repos for churn.
+
+[[badge]]
+id = "ci"
+surfaces = ["readme"]
+condition = ".github/workflows/ci.yml"
+readme = "![CI](https://github.com/{github_org}/{name}/actions/workflows/ci.yml/badge.svg)"
+
+[[badge]]
+id = "coverage"
+surfaces = ["readme"]
+condition = "docs/reference/generated/coverage_badge.svg"
+readme = "![Coverage](docs/reference/generated/coverage_badge.svg)"
+
+[[badge]]
+id = "pypi"
+surfaces = ["readme", "index"]
+condition = "pyproject.toml"
+readme = "![PyPI](https://img.shields.io/pypi/v/{name})"
+index = "[![PyPI](https://img.shields.io/pypi/v/{name}.svg)](https://pypi.org/project/{name}/)"
+
+[[badge]]
+id = "license"
+surfaces = ["readme", "index"]
+condition = "LICENSE"
+readme = "![License](https://img.shields.io/badge/license-{license}-green)"
+index = "![License](https://img.shields.io/badge/license-{license}-green)"
+
+[[badge]]
+id = "code_style"
+surfaces = ["readme", "index"]
+condition = "pyproject.toml"
+readme = "![Code style](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)"
+index = "![Code style](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)"
+
+[[badge]]
+id = "prek"
+surfaces = ["readme", "index"]
+condition = ".pre-commit-config.yaml"
+readme = "[![prek](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json)](https://github.com/j178/prek)"
+index = "[![prek](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json)](https://github.com/j178/prek)"
+
+[[badge]]
+id = "interrogate"
+surfaces = ["index"]
+condition = "docs/reference/generated/interrogate_badge.svg"
+index = "![interrogate](reference/generated/interrogate_badge.svg)"
+
+[[badge]]
+id = "coverage_generated"
+surfaces = ["index"]
+condition = "docs/reference/generated/coverage_badge.svg"
+index = "![coverage](reference/generated/coverage_badge.svg)"
+
+[[badge]]
+id = "hooks"
+surfaces = ["index"]
+condition = "docs/reference/generated/hooks_badge.svg"
+index = "![hooks](reference/generated/hooks_badge.svg)"
+
+[[badge]]
+id = "noqa"
+surfaces = ["index"]
+condition = "docs/reference/generated/noqa_badge.svg"
+index = "![noqa](reference/generated/noqa_badge.svg)"

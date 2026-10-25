@@ -1,0 +1,7 @@
+# Distributed by pinky-bootstrap into scripts/hooks/ruff.toml. This code is linted at its source,
+# never in the repo that receives it: no rule and no formatting apply here, in pre-commit or the editor.
+[lint]
+select = []
+
+[format]
+exclude = ["*.py"]

@@ -1,0 +1,5 @@
+[darglint]
+docstring_style = google
+strictness = long
+ignore = DAR402
+ignore_raise = exc

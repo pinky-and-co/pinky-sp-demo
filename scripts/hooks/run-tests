@@ -1,0 +1,116 @@
+#!/bin/bash
+# =============================================================================
+# PRE-COMMIT HOOK — run-tests
+# =============================================================================
+# Distributed from pinky-workspace/core/hooks/ — do not edit in place. Declared in
+# core/pre-commit/base.yaml (universal, `files: ^(src|tests)/`), NOT in the `python` extra.
+#
+# Runs the repo's Python suite (pytest, when a tests/ dir exists) and its JavaScript
+# suite (npm test, or the native `node --test` runner) and blocks the commit if either
+# fails. Separate from generate-docs: that hook's own test run is for the coverage
+# badge and is non-blocking; this one is the actual quality gate and runs independently
+# rather than sharing coverage data with it, so a stale shared artifact can't mask a
+# failure.
+#
+# Suites are DETECTED first, runners resolved second — a JS-only repo must still reach
+# its own suite even where no Python interpreter is installed.
+# =============================================================================
+
+status=0
+
+# ── Suite Python ─────────────────────────────────────────────────────────────
+# Pas de dossier tests/ : rien à exécuter, ne pas bloquer un repo qui n'a pas de suite.
+if [ -d tests ]; then
+    # Interpréteur résolu explicitement, jamais un `python` nu : le venv du projet
+    # d'abord, car la suite a besoin des dépendances du repo qu'un python3 système n'a pas.
+    if [ -x .venv/bin/python ]; then PY=".venv/bin/python"                    # POSIX
+    elif [ -x .venv/Scripts/python.exe ]; then PY=".venv/Scripts/python.exe"  # Windows
+    elif command -v python3 > /dev/null 2>&1; then PY="python3"
+    elif command -v py > /dev/null 2>&1; then PY="py -3"
+    else PY=""
+    fi
+
+    if [ -z "$PY" ]; then
+        echo "⚠ run-tests: aucun interpréteur Python (.venv / python3 / py) — suite Python non exécutée" >&2
+    # pytest absent : outil de dev manquant, pas un test qui échoue — on ne bloque pas le commit.
+    elif ! $PY -c "import pytest" > /dev/null 2>&1; then
+        echo "⚠ run-tests: pytest non installé — suite Python non exécutée" >&2
+    else
+        # --no-cov appartient à pytest-cov : le passer sans ce plugin installé fait sortir
+        # pytest en erreur d'usage, lue à tort comme un échec de la suite.
+        #
+        # L'instrumentation de couverture n'est pas notre rôle ici : on veut le verdict
+        # pass/fail le plus rapide, donc on désactive le plugin cov quand il est présent.
+        COV_FLAG=""
+        if $PY -c "import pytest_cov" > /dev/null 2>&1; then
+            COV_FLAG="--no-cov"
+        fi
+        # pytest-xdist installé : la suite se répartit sur tous les cœurs. L'activation se fait
+        # par le repo, en ajoutant xdist à ses dépendances de dev ; sans lui, rien ne change.
+        XDIST_FLAG=""
+        if $PY -c "import xdist" > /dev/null 2>&1; then
+            XDIST_FLAG="-n auto"
+        fi
+        # Pas de `-p no:cacheprovider` : les repos configurent déjà cache_dir en pyproject ;
+        # désactiver le plugin ferait cracher un PytestConfigWarning à chaque commit.
+        # Aucune option pytest ne retire les lignes de progression (`....F.. [ 42%]`, même en -qq) :
+        # on les filtre, le détail des échecs et le résumé restent. Le code de sortie est celui de
+        # pytest, pas du filtre.
+        #
+        # Derrière un pipe pytest croit n'être plus sur un terminal et coupe sa couleur : on la
+        # redemande tant que NO_COLOR ne s'y oppose pas. Les codes ANSI sont ôtés avant de juger
+        # si une ligne est de la progression, puis la ligne est imprimée telle quelle.
+        COLOR_FLAG=""
+        if [ -z "$NO_COLOR" ] && { [ -t 1 ] || [ -n "$FORCE_COLOR" ]; }; then
+            COLOR_FLAG="--color=yes"
+        fi
+        $PY -m pytest -q $COV_FLAG $XDIST_FLAG $COLOR_FLAG 2>&1 | awk '
+            { plain = $0; gsub(/\033\[[0-9;]*m/, "", plain) }
+            plain !~ /^[.sxXFE]+ *(\[ *[0-9]+%\])?$/ { print; fflush() }'
+        rc=${PIPESTATUS[0]}
+        # 5 = aucun test collecté : pas un échec, même catégorie que « pytest absent ».
+        # Arrive quand tests/ ne contient que des tests d'un autre langage.
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 5 ]; then
+            status=1
+        fi
+    fi
+fi
+
+# ── Suite JavaScript ─────────────────────────────────────────────────────────
+# Deux signaux, dans cet ordre : un script `test` dans package.json l'emporte (le repo a
+# choisi son runner), sinon la présence de fichiers *.test.js suffit via le runner natif
+# `node --test`, sans npm install.
+js_files=$(find . \( -name node_modules -o -name .git -o -name .venv \) -prune \
+    -o -type f \( -name '*.test.js' -o -name '*.test.mjs' -o -name '*.test.cjs' \) -print 2>/dev/null | head -1)
+
+# Le script `test` de package.json se lit avec node lui-même — pas de jq (absent des machines
+# vanilla), pas de grep sur du JSON (un `"test"` en valeur ou en commentaire ferait un faux positif).
+has_pkg_test=0
+if [ -f package.json ] && command -v node > /dev/null 2>&1; then
+    if node -e 'const s=(require("./package.json").scripts)||{};process.exit(s.test?0:1)' 2>/dev/null; then
+        has_pkg_test=1
+    fi
+fi
+
+if [ "$has_pkg_test" = 1 ] || [ -n "$js_files" ]; then
+    if ! command -v node > /dev/null 2>&1; then
+        echo "⚠ run-tests: node absent — suite JavaScript non exécutée" >&2
+    elif [ "$has_pkg_test" = 1 ]; then
+        if ! command -v npm > /dev/null 2>&1; then
+            echo "⚠ run-tests: package.json déclare un script test mais npm est absent — suite JavaScript non exécutée" >&2
+        elif ! npm test --silent; then
+            status=1
+        fi
+    # `node --test` sans argument découvre **/*.test.js et exclut node_modules de lui-même.
+    elif ! node --test; then
+        status=1
+    fi
+fi
+
+if [ "$status" -ne 0 ]; then
+    echo "" >&2
+    echo "✖ run-tests: la suite de tests échoue — commit bloqué." >&2
+    echo "  Corrige les tests, ou --no-verify si le WIP est délibéré." >&2
+fi
+
+exit "$status"

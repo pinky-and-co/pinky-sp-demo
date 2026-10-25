@@ -1,0 +1,7 @@
+# Distributed as-is to every onboarded repo's root (see setup/precommit.py distribute()).
+# Normalizes line endings at commit time so a Windows checkout (CRLF by default) and a macOS/Linux
+# one (LF) never produce a cross-machine diff on text the moteur or a human edits (CHANTIER0001
+# portage-windows-du-moteur — the framework has to run on the author's Mac, a Windows machine, and
+# a colleague's laptop). `eol=lf` pins the normalized form to LF rather than leaving it to whichever
+# machine commits first.
+* text=auto eol=lf

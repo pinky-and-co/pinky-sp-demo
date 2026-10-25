@@ -3,3 +3,11 @@ name = "pinky-sp-demo"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = ["streamlit[snowflake]"]
+
+[tool.uv]
+required-version = ">=0.9.17"
+# Fenêtre de cooldown (chantier 0024) : `uv lock` ignore tout paquet publié depuis moins
+# de 3 jours — protège la résolution contre une dépendance fraîchement compromise
+# republiée sur PyPI. Durée relative : uv la résout au lock, `grep exclude-newer-span
+# uv.lock` dit la fenêtre appliquée. Posée par `pinky repo distribute`, jamais éditée à la main.
+exclude-newer = "3 days"
